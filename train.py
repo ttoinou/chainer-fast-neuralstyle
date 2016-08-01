@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import argparse
+import atexit
 from PIL import Image, ImageOps
 
 from chainer import cuda, Variable, optimizers, serializers
@@ -101,9 +102,19 @@ for i in range(batchsize):
 feature_s = vgg(Variable(style_b, volatile=True))
 gram_s = [gram_matrix(y) for y in feature_s]
 
-for epoch in range(n_epoch):
+epoch = 0
+i = 0
+
+@atexit.register
+def saveBeforeStopping():
+    print "interruption, saving model and state"
+    serializers.save_npz('models/{}_{}_{}.model'.format(output, epoch, i), model)
+    serializers.save_npz('models/{}_{}_{}.state'.format(output, epoch, i), O)
+
+while epoch < n_epoch:
     print 'epoch', epoch
-    for i in range(n_iter):
+    i = 0
+    while i < n_iter:
         model.zerograds()
         vgg.zerograds()
 
@@ -148,10 +159,13 @@ for epoch in range(n_epoch):
         if args.checkpoint > 0 and i % args.checkpoint == 0:
             serializers.save_npz('models/{}_{}_{}.model'.format(output, epoch, i), model)
             serializers.save_npz('models/{}_{}_{}.state'.format(output, epoch, i), O)
+        
+        i += 1
 
     print 'save "style.model"'
     serializers.save_npz('models/{}_{}.model'.format(output, epoch), model)
     serializers.save_npz('models/{}_{}.state'.format(output, epoch), O)
+    epoch += 1
 
 serializers.save_npz('models/{}.model'.format(output), model)
 serializers.save_npz('models/{}.state'.format(output), O)
