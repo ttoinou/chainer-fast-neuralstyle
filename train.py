@@ -50,6 +50,7 @@ parser.add_argument('--lambda_style', default=1e1, type=float)
 parser.add_argument('--epoch', '-e', default=2, type=int)
 parser.add_argument('--lr', '-l', default=1e-3, type=float)
 parser.add_argument('--checkpoint', '-c', default=0, type=int)
+parser.add_argument('--checkpoint_iter', '-ci', default=0, type=int)
 parser.set_defaults(crop=True)
 args = parser.parse_args()
 
@@ -108,11 +109,16 @@ for epoch in range(n_epoch):
 
         indices = range(i * batchsize, (i+1) * batchsize)
         x = xp.zeros((batchsize, 3, size, size), dtype=xp.float32)
-        for j in range(batchsize):
-            img = Image.open(imagepaths[i*batchsize + j]).convert('RGB')
-            img = ImageOps.fit(img, (size, size), 2) if args.crop else img.resize((size,size), 2)
-            x[j] = xp.asarray(img, dtype=np.float32).transpose(2, 0, 1)
-
+        
+        try:
+            for j in range(batchsize):
+                img = Image.open(imagepaths[i*batchsize + j]).convert('RGB')
+                img = ImageOps.fit(img, (size, size), 2) if args.crop else img.resize((size,size), 2)
+                x[j] = xp.asarray(img, dtype=np.float32).transpose(2, 0, 1)
+        except Exception:
+          print Exception
+          print "image error ? ",currentimage
+          
         xc = Variable(x.copy(), volatile=True)
         x = Variable(x)
 
@@ -133,7 +139,8 @@ for epoch in range(n_epoch):
         L_tv = lambda_tv * total_variation_regularization(y)
         L = L_feat + L_style + L_tv
 
-        print '(epoch {}) batch {}/{}... training loss is...{}'.format(epoch, i, n_iter, L.data)
+        if i % args.checkpoint_iter == 0:
+            print '(epoch {}) batch {}/{}... training loss is...{}'.format(epoch, i, n_iter, L.data)
 
         L.backward()
         O.update()
