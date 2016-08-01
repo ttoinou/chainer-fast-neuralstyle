@@ -1,6 +1,6 @@
 import numpy as np
 import argparse
-from PIL import Image
+from PIL import Image, ImageOps
 import time
 import os
 
@@ -11,10 +11,12 @@ from net import *
 parser = argparse.ArgumentParser(description='Real-time style transfer image generator')
 parser.add_argument('input')
 parser.add_argument('--input', '-i', type=str)
-parser.add_argument('--gpu', '-g', default=-1, type=int,
+parser.add_argument('--gpu', '-g', default=0, type=int,
                     help='GPU ID (negative value indicates CPU)')
 parser.add_argument('--model', '-m', default='models/style.model', type=str)
 parser.add_argument('--out', '-o', default='out.jpg', type=str)
+parser.add_argument('--scale', '-s', default=1.0, type=float)
+parser.add_argument('--border', '-b', default=0, type=int)
 args = parser.parse_args()
 
 
@@ -22,7 +24,7 @@ def restartTime():
     return time.time()
 
 def showTime(msg,start):
-    print msg,' => ',time.time() - start, ' sec'
+    print msg,' => ', int((time.time() - start)*1000.0), 'ms'
 
 def generate(input):
     start = restartTime()
@@ -38,14 +40,42 @@ def generate(input):
     showTime('generate \t',start)
     return result
 
-def generateFromImageUrl(inputUrl,outputUrl):
-    start = restartTime()
+def expandImage(args,image):
+    image = ImageOps.expand(image,border=args.border,fill='white')
+    # fill with real pixels the white border
+    # ...
+    return image
+
+def reduceImage(args,image):
+    return ImageOps.expand(image,border=-args.border,fill='white')
+
+def imageUrlToArray(args,inputUrl):
+    image = Image.open(inputUrl).convert('RGB')
     
-    image = xp.asarray(Image.open(inputUrl).convert('RGB'), dtype=xp.float32).transpose(2, 0, 1)
+    if args.scale != 1.0:
+        image = ImageOps.fit(image, ( int(image.size[0]*args.scale) , int(image.size[1]*args.scale) ), 2)
+    
+    if args.border > 0:
+        image = expandImage(args,image)
+    
+    print float(image.size[0]*image.size[1])/(1000000)," MPx"
+    
+    image = xp.asarray(image, dtype=xp.float32).transpose(2, 0, 1)
     image = image.reshape((1,) + image.shape)
-    result = Image.fromarray(generate(image)).save(outputUrl)
+    return image
     
-    showTime('generateImage \t',start)
+def generateFromImageUrl(args,inputUrl,outputUrl):
+    start = restartTime()
+    image = imageUrlToArray(args,inputUrl)
+    
+    image = generate(image)
+    image = Image.fromarray(image)
+    
+    if args.border > 0:
+        image = reduceImage(args,image)
+    
+    image.save(outputUrl)
+    showTime('with image Ops \t',start)
 
 # loading
 start = restartTime()
@@ -57,7 +87,7 @@ if args.gpu >= 0:
     model.to_gpu()
 xp = np if args.gpu < 0 else cuda.cupy
 
-showTime('loading\t',start)
+showTime('loading\t\t',start)
 
 
 def main(args):
@@ -73,11 +103,9 @@ def main(args):
         print 'folder ',args.input,' has ',len(imagesPaths),'images'
         
         for imagePath in imagesPaths:
-            #print imagePath
-            #print os.path.join(args.out,os.path.basename(imagePath))
-            generateFromImageUrl(imagePath,os.path.join(args.out,os.path.basename(imagePath)))
+            generateFromImageUrl(args,imagePath,os.path.join(args.out,os.path.basename(imagePath)))
     else:
-        generateFromImageUrl(args.input,args.out)
+        generateFromImageUrl(args,args.input,args.out)
         
 
 if __name__ == '__main__':
