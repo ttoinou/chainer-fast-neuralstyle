@@ -40,13 +40,51 @@ def generate(input):
     showTime('generate \t',start)
     return result
 
+def symmetry(x,s):
+    return s + s - x
+
 def expandImage(args,image):
+    w = image.size[0]
+    h = image.size[1]
+    
     image = ImageOps.expand(image,border=args.border,fill='white')
     # fill with real pixels the white border
-    # ...
+    # assuming o < w and o < h
+    pixels = image.load() # create the pixel map
+    o = args.border
+    X = 0
+    Y = 0
+    do = False
+    
+    for x in range(image.size[0]):    # for every pixel:
+        for y in range(image.size[1]):
+            X = x
+            Y = y
+            do = False
+            
+            
+            if X < o:
+                X = symmetry(X,o)
+                do = True
+            elif X > w+o-1:
+                X = symmetry(X,w+o-1)
+                do = True
+                
+            if Y < o:
+                Y = symmetry(Y,o)
+                do = True
+            elif Y > h+o-1:
+                Y = symmetry(Y,h+o-1)
+                do = True
+            
+            #print X,Y,w,h
+            if do:
+                pixels[x,y] = pixels[X,Y]
+    
     return image
 
 def reduceImage(args,image):
+    #return image
     return ImageOps.expand(image,border=-args.border,fill='white')
 
 def imageUrlToArray(args,inputUrl):
