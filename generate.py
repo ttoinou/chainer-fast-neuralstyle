@@ -19,6 +19,9 @@ parser.add_argument('--model', '-m', default='models/style.model', type=str)
 parser.add_argument('--out', '-o', default='out.jpg', type=str)
 parser.add_argument('--scale', '-s', default=1.0, type=float)
 parser.add_argument('--border', '-b', default=0, type=int)
+parser.add_argument('--overlap', '-ov', default=0, type=int)
+parser.add_argument('--mpx', '-mp', default=-1, type=float)
+parser.add_argument('--join', '-j', default='blend', type=bool)
 args = parser.parse_args()
 
 def divisionNumberInequality(Mpx,w,h,o,n):
@@ -50,7 +53,7 @@ def generate(input):
     start = restartTime()
     x = Variable(input)
     
-    y = model(x)
+    y = args.CNNmodel(x)
     result = cuda.to_cpu(y.data)
     
     result = result.transpose(0, 2, 3, 1)
@@ -82,7 +85,6 @@ def expandImage(args,image):
             Y = y
             do = False
             
-            
             if X < o:
                 X = symmetry(X,o)
                 do = True
@@ -105,9 +107,101 @@ def expandImage(args,image):
 
 def reduceImage(args,image):
     #return image
+    #return ImageOps.expand(image,border=-args.border)
     return ImageOps.expand(image,border=-args.border,fill='white')
 
-def imageUrlToArray(args,inputUrl):
+
+def divideImage(args,image):
+    args.divide = 1
+    args.images = [image]
+    
+    if args.mpx > 0:
+        args.width = image.size[0]
+        args.height = image.size[1]
+        args.divide = findDivisionNumber(args.mpx,args.width,args.height,args.overlap)
+        
+        if args.divide > 1:
+            W = int(math.floor( args.width / args.divide ))
+            H = int(math.floor( args.height / args.divide ))
+            print 'dividing the image in ',args.divide,',',args.width,'x',args.height, '=>',W,'x',H
+            o = args.overlap
+            
+            args.images = []
+            args.imagesCrop = []
+            for i in range(args.divide):
+                for j in range(args.divide):
+                    X = i*W
+                    Y = j*H
+                    minX = max(X-o,0)
+                    minY = max(Y-o,0)
+                    crop = ( minX , minY , min(X+W+o,args.width) , min(Y+H+o,args.height) , o-minX , o-minY )
+                    a = image.crop( crop[0:4] )
+                    args.images.append( a )
+                    args.imagesCrop.append( crop )
+                    print a.size
+    
+def joinImages(args):
+    if args.divide > 1:
+        image = Image.new('RGB',(args.width,args.height),'black')
+        pixelsTarget = image.load()
+        o = args.overlap
+        print o,o<=0
+        
+        if o <= 0 or args.join == 'raw':
+            for i in range(args.divide):
+                for j in range(args.divide):
+                    n = i*args.divide + j
+                    print n,args.imagesCrop[n]
+                    pixels = args.imagesProcessed[n].load()
+                    w = args.imagesCrop[n][2] - args.imagesCrop[n][0] - 1
+                    h = args.imagesCrop[n][3] - args.imagesCrop[n][1] - 1
+                    
+                    for x in range(w):
+                        for y in range(h):
+                            #print x,y
+                            a = pixels[x,y]
+                            pixelsTarget[ args.imagesCrop[n][0] + x , args.imagesCrop[n][1] + y ] = a
+        
+        else:
+            pixels = []
+            N = len(args.imagesCrop)
+            for n in range(N):
+                pixels.append( args.imagesProcessed[n].load() )
+            
+            
+            for x in range(args.width):
+                for y in range(args.height):
+                    s = 0.0
+                    r = 0.0
+                    g = 0.0
+                    b = 0.0
+                    for n in range(N):
+                        crop = args.imagesCrop[n]
+                        if x >= crop[0] and x < crop[2]-2 and y >= crop[1] and y < crop[3]-2:
+                            
+                            t = min(abs(x-crop[0]),abs(x-crop[2]))
+                            t = min(t,abs(y-crop[1]),abs(y-crop[3]))
+                            t = float(t)/float(o)
+                            t = max(min(t,1.0),0.0)
+                            
+                            t = (1.0 - math.cos(math.pi*t))/2.0
+                            a = pixels[n][x-crop[0],y-crop[1]]
+                            r += a[0]*t
+                            g += a[1]*t
+                            b += a[2]*t
+                            #print t,a
+                            #pixelsTarget[x,y] += t * a
+                            s += t
+                    
+                    if s != 0.0:
+                        pixelsTarget[x,y] = ( int(r/s) , int(g/s) , int(b/s) )
+                    
+        
+        return image
+    else:
+        return args.imagesProcessed[0]
+    
+def processImageInput(args,inputUrl):
     image = Image.open(inputUrl).convert('RGB')
     
     if args.scale != 1.0:
@@ -118,16 +212,20 @@ def imageUrlToArray(args,inputUrl):
     
     print float(image.size[0]*image.size[1])/(1000000)," MPx"
     
-    image = xp.asarray(image, dtype=xp.float32).transpose(2, 0, 1)
-    image = image.reshape((1,) + image.shape)
-    return image
+    divideImage(args,image)
     
 def generateFromImageUrl(args,inputUrl,outputUrl):
     start = restartTime()
-    image = imageUrlToArray(args,inputUrl)
+    processImageInput(args,inputUrl)
+    args.imagesProcessed = []
     
-    image = generate(image)
-    image = Image.fromarray(image)
+    for i in range(len(args.images)):
+        image = args.xp.asarray(args.images[i], dtype=args.xp.float32).transpose(2, 0, 1)
+        image = image.reshape((1,) + image.shape)
+        image = generate(image)
+        args.imagesProcessed.append(Image.fromarray(image))
+        
+    image = joinImages(args)
     
     if args.border > 0:
         image = reduceImage(args,image)
@@ -139,12 +237,12 @@ def generateFromImageUrl(args,inputUrl,outputUrl):
 def loading(args):
     start = restartTime()
     
-    model = FastStyleNet()
-    serializers.load_npz(args.model, model)
+    args.CNNmodel = FastStyleNet()
+    serializers.load_npz(args.model, args.CNNmodel)
     if args.gpu >= 0:
         cuda.get_device(args.gpu).use()
-        model.to_gpu()
-    xp = np if args.gpu < 0 else cuda.cupy
+        args.CNNmodel.to_gpu()
+    args.xp = np if args.gpu < 0 else cuda.cupy
     
     showTime('loading\t\t',start)
 
@@ -183,10 +281,8 @@ if args.mode == 'divisionTest':
             
         if j % 1000000 == 0:
             print "division test no error",j
-        
-        
     
-elif args.mode == '' or __name__ == '__main__':
+elif args.mode == '' or args.mode == 'gen' or __name__ == '__main__':
     loading(args)
     main(args)
     
