@@ -165,16 +165,17 @@ def joinImages(args):
         else:
             pixels = []
             N = len(args.imagesCrop)
+            
             for n in range(N):
                 pixels.append( args.imagesProcessed[n].load() )
             
             
             for x in range(args.width):
                 for y in range(args.height):
-                    s = 0.0
-                    r = 0.0
-                    g = 0.0
-                    b = 0.0
+                    s = 0
+                    r = 0
+                    g = 0
+                    b = 0
                     for n in range(N):
                         crop = args.imagesCrop[n]
                         if x >= crop[0] and x < crop[2]-2 and y >= crop[1] and y < crop[3]-2:
@@ -184,7 +185,7 @@ def joinImages(args):
                             t = float(t)/float(o)
                             t = max(min(t,1.0),0.0)
                             
-                            t = (1.0 - math.cos(math.pi*t))/2.0
+                            t = int( (1.0 - math.cos(math.pi*t))/2.0 * 1000 )
                             a = pixels[n][x-crop[0],y-crop[1]]
                             r += a[0]*t
                             g += a[1]*t
@@ -194,7 +195,7 @@ def joinImages(args):
                             s += t
                     
                     if s != 0.0:
-                        pixelsTarget[x,y] = ( int(r/s) , int(g/s) , int(b/s) )
+                        pixelsTarget[x,y] = ( r/s , g/s , b/s )
                     
         
         return image
